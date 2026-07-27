@@ -1,0 +1,14 @@
+.env
+
+# Runtime state and config (contains secrets)
+config.json
+state.json
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Memory bank
+memory-bank/
+memory-bank/*
