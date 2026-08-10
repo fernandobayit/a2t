@@ -282,10 +282,18 @@ async def stop_all_bots():
 # ---------------------------------------------------------------------------
 
 async def test_token(token: str) -> tuple[bool, str]:
+    bot = None
     try:
         bot = Bot(token=token)
-        info = await bot.get_me()
-        await bot.session.close()
+        info = await asyncio.wait_for(bot.get_me(), timeout=15)
         return True, f"Connected as @{info.username} ({info.first_name})"
+    except asyncio.TimeoutError:
+        return False, "Connection timed out (15s). Check the token and network."
     except Exception as e:
         return False, format_error(e)
+    finally:
+        if bot is not None:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass

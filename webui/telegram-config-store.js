@@ -134,11 +134,17 @@ export const store = createStore("a2tConfig", {
         try {
             const { callJsonApi } = await import("/js/api.js");
             const { toastFrontendSuccess, toastFrontendError } = await import("/js/toast.js");
-            const res = await callJsonApi(`${API_BASE}/test_connection`, {
+
+            const apiPromise = callJsonApi(`${API_BASE}/test_connection`, {
                 bot: config.bots[idx],
             });
-            this.testResults = res;
-            if (res.success !== false && res.ok !== false) {
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Request timed out (20s)")), 20000)
+            );
+            const res = await Promise.race([apiPromise, timeoutPromise]);
+
+            this.testResults = res || { results: [{ test: "Connection", ok: false, message: "Empty response" }] };
+            if (res && res.success !== false && res.ok !== false) {
                 toastFrontendSuccess("A2T: connection test passed");
             } else {
                 toastFrontendError("A2T: connection test failed");
