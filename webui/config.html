@@ -5,7 +5,43 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <script type="module">
-    import { store } from "/plugins/a2t/webui/telegram-config-store.js?v=fix2";
+    import { store } from "/plugins/a2t/webui/telegram-config-store.js?v=fix3";
+  </script>
+  <script>
+    // Inline override: patch testConnection with client-side timeout
+    // Ensures button unsticks even if cached JS lacks the fix
+    (function patchTestConnection() {
+      function applyPatch() {
+        const s = window.Alpine && Alpine.store('a2tConfig');
+        if (!s || s._patched) return;
+        s._patched = true;
+        s.testConnection = async function(config, idx) {
+          this.testing = idx;
+          this.testResults = null;
+          try {
+            const { callJsonApi } = await import("/js/api.js");
+            const { toastFrontendSuccess, toastFrontendError } = await import("/js/toast.js");
+            const apiP = callJsonApi("/plugins/a2t/test_connection", { bot: config.bots[idx] });
+            const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout (20s)")), 20000));
+            const res = await Promise.race([apiP, timeoutP]);
+            this.testResults = res || { results: [{ test: "Connection", ok: false, message: "Empty" }] };
+            if (res && res.success !== false && res.ok !== false) toastFrontendSuccess("A2T: OK");
+            else toastFrontendError("A2T: failed");
+          } catch (e) {
+            const { toastFrontendError } = await import("/js/toast.js");
+            this.testResults = { success: false, results: [{ test: "Connection", ok: false, message: String(e) }] };
+            toastFrontendError("A2T: error");
+          }
+          this.testing = null;
+        };
+      }
+      // Try immediately, then retry until Alpine store is ready
+      if (window.Alpine) applyPatch();
+      else document.addEventListener('alpine:initialized', applyPatch);
+      // Fallback: retry every 500ms for 5s
+      let tries = 0;
+      const interval = setInterval(() => { applyPatch(); if (++tries > 10) clearInterval(interval); }, 500);
+    })();
   </script>
 </head>
 
