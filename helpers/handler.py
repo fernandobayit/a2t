@@ -10,6 +10,7 @@ Uses the A0 plugin system's AgentContext for per-user sessions and
 direct Python API calls for control commands (no HTTP/CSRF needed).
 """
 
+import asyncio
 import base64
 import json
 import os
@@ -648,33 +649,18 @@ async def handle_message(message: TgMessage, bot_name: str, bot_cfg: dict):
         return
     if not _is_allowed(bot_cfg, user.id, user.username, message.chat.id):
         return
-
     instance = get_bot(bot_name)
     if not instance:
         return
 
-    # Check file size for documents
     max_file_bytes = bot_cfg.get("max_file_size_mb", 20) * 1024 * 1024
     if message.document and message.document.file_size and message.document.file_size > max_file_bytes:
         max_mb = bot_cfg.get("max_file_size_mb", 20)
-        await _send_with_temp_bot(
-            instance.bot.token, message.chat.id,
-            f"File too large (max {max_mb} MB).",
-            parse_mode=None,
-            message_thread_id=_api_thread_id(message),
-        )
+        await _send_with_temp_bot(instance.bot.token, message.chat.id, f"File too large (max {max_mb} MB).", parse_mode=None, message_thread_id=_api_thread_id(message))
         return
 
-    # Stop any existing typing indicator from a previous message
     _stop_typing_for_context(bot_name, message)
-
-    # Start persistent typing indicator
     api_tid = _api_thread_id(message)
-    # Typing indicator: only pass thread_id for forum groups. In private
-    # chats Telegram accepts message_thread_id on sendChatAction but does
-    # not display the typing indicator visually inside the reply thread.
-    # Sending without thread_id shows typing at the chat level, which is
-    # the only place Telegram shows it for non-forum conversations.
     is_forum = getattr(message.chat, "is_forum", False)
     typing_thread_id = api_tid if is_forum else None
     typing_stop = _start_typing(instance.bot.token, message.chat.id, thread_id=typing_thread_id)
@@ -682,27 +668,17 @@ async def handle_message(message: TgMessage, bot_name: str, bot_cfg: dict):
     context = await _get_or_create_context(bot_name, bot_cfg, message)
     if not context:
         typing_stop.set()
-        await _send_with_temp_bot(
-            instance.bot.token, message.chat.id,
-            "Failed to create chat session.",
-            parse_mode=None,
-            message_thread_id=api_tid,
-        )
+        await _send_with_temp_bot(instance.bot.token, message.chat.id, "Failed to create chat session.", parse_mode=None, message_thread_id=api_tid)
         return
 
-    # Safety: stop any typing stop event already on the context (e.g. rapid re-send)
     old_stop = context.data.get(CTX_TG_TYPING_STOP)
     if old_stop:
         old_stop.set()
-
     context.data[CTX_TG_TYPING_STOP] = typing_stop
 
-    # Reply-to tracking for group chats
     reply_to_id = None
     if message.chat.type != "private" and instance.bot_info:
-        if (message.reply_to_message
-                and message.reply_to_message.from_user
-                and message.reply_to_message.from_user.id == instance.bot_info.id):
+        if (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.id == instance.bot_info.id):
             reply_to_id = message.message_id
     context.data[CTX_TG_REPLY_TO] = reply_to_id
 
@@ -711,18 +687,14 @@ async def handle_message(message: TgMessage, bot_name: str, bot_cfg: dict):
     async with _temp_bot(instance.bot.token) as dl_bot:
         attachments = await _download_attachments(dl_bot, message, bot_name=bot_name)
 
-    # Transcribe voice/audio messages using Whisper STT (native runtime, model in memory)
+    # Transcribe voice/audio messages using Whisper STT
     if message.voice or message.audio or message.video_note:
         for attr, label in [("voice", "Voice message"), ("audio", "Audio"), ("video_note", "Video note")]:
             obj = getattr(message, attr, None)
             if not obj:
                 continue
-            # Find the downloaded file for this attachment type
-            tg_prefix = f"a2t_{bot_name}_" if bot_name else "a2t_"
-            download_dir = files.get_abs_path(DOWNLOAD_FOLDER)
             transcribed = False
             for att_path in (attachments or []):
-                # att_path is dockerized; resolve to absolute path for reading
                 abs_att = files.get_abs_path(att_path) if not os.path.isabs(att_path) else att_path
                 if os.path.isfile(abs_att):
                     transcript = await _transcribe_audio_file(att_path)
@@ -730,39 +702,22 @@ async def handle_message(message: TgMessage, bot_name: str, bot_cfg: dict):
                         marker = f"[{label} -- see attachment]"
                         text = text.replace(marker, f"[{label} transcribed]: {transcript}")
                         transcribed = True
-                        PrintStyle.info(f"A2T: {label} transcribed via Whisper ({len(transcript)} chars)")
                         break
             if not transcribed and f"[{label} -- see attachment]" in text:
-                PrintStyle.info(f"A2T: {label} could not be transcribed (Whisper unavailable or failed)")
+                PrintStyle.error(f"A2T: transcription failed for {label}")
 
     agent = context.agent0
-    user_msg = agent.read_prompt(
-        "fw.a2t.user_message.md",
-        sender=_format_user(user),
-        body=text,
-    )
+    user_msg = agent.read_prompt("fw.a2t.user_message.md", sender=_format_user(user), body=text)
 
     msg_id = str(uuid.uuid4())
     mq.log_user_message(context, user_msg, attachments, message_id=msg_id, source=" (a2t)")
-    context.communicate(UserMessage(
-        message=user_msg,
-        attachments=attachments,
-        id=msg_id,
-    ))
-
+    context.communicate(UserMessage(message=user_msg, attachments=attachments, id=msg_id))
     save_tmp_chat(context)
 
     if bot_cfg.get("notify_messages", False):
         username_str = _safe_username(user)
         preview = (text[:80] + "...") if len(text) > 80 else text
-        NotificationManager.send_notification(
-            type=NotificationType.INFO,
-            priority=NotificationPriority.HIGH,
-            title="A2T: new message",
-            message=f"From {username_str}: {preview}",
-            display_time=10,
-            group="a2t",
-        )
+        NotificationManager.send_notification(type=NotificationType.INFO, priority=NotificationPriority.HIGH, title="A2T: new message", message=f"From {username_str}: {preview}", display_time=10, group="a2t")
 
 
 # ---------------------------------------------------------------------------
@@ -938,28 +893,43 @@ def _extract_message_content(message: TgMessage) -> str:
 
 
 async def _transcribe_audio_file(file_path: str) -> str | None:
-    """Transcribe audio file using Whisper STT runtime (model in memory).
-
-    Returns transcribed text or None if Whisper is unavailable.
-    """
+    """Transcribe audio file using Whisper STT runtime."""
     try:
         from plugins._whisper_stt.helpers import runtime as whisper_runtime
         if not whisper_runtime.is_globally_enabled():
             return None
-
         abs_path = files.get_abs_path(file_path)
         if not os.path.isfile(abs_path):
             return None
-
         with open(abs_path, "rb") as f:
             audio_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-        result = await whisper_runtime.transcribe(audio_b64)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_run_whisper_sync, whisper_runtime, audio_b64),
+            timeout=120,
+        )
         text = str(result.get("text") or "").strip()
+        if text:
+            PrintStyle.info("A2T: Whisper transcribed (" + str(len(text)) + " chars): " + text[:80])
         return text if text else None
-    except Exception as e:
-        PrintStyle.error(f"A2T: Whisper transcription failed: {format_error(e)}")
+    except asyncio.TimeoutError:
+        PrintStyle.error("A2T: Whisper transcription timed out (120s)")
         return None
+    except Exception as e:
+        PrintStyle.error("A2T: Whisper transcription failed: " + format_error(e))
+        return None
+
+
+def _run_whisper_sync(whisper_runtime, audio_b64: str) -> dict:
+    """Synchronous whisper transcription - runs in thread executor."""
+    import asyncio as _aio
+    cfg = whisper_runtime.get_config()
+    loop = _aio.new_event_loop()
+    try:
+        return loop.run_until_complete(
+            whisper_runtime.transcribe(audio_b64, config=cfg)
+        )
+    finally:
+        loop.close()
 
 
 async def _download_attachments(bot, message: TgMessage, bot_name: str = "") -> list[str]:
