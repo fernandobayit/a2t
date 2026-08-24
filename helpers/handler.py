@@ -10,6 +10,7 @@ Uses the A0 plugin system's AgentContext for per-user sessions and
 direct Python API calls for control commands (no HTTP/CSRF needed).
 """
 
+import base64
 import json
 import os
 import threading
@@ -710,6 +711,30 @@ async def handle_message(message: TgMessage, bot_name: str, bot_cfg: dict):
     async with _temp_bot(instance.bot.token) as dl_bot:
         attachments = await _download_attachments(dl_bot, message, bot_name=bot_name)
 
+    # Transcribe voice/audio messages using Whisper STT (native runtime, model in memory)
+    if message.voice or message.audio or message.video_note:
+        for attr, label in [("voice", "Voice message"), ("audio", "Audio"), ("video_note", "Video note")]:
+            obj = getattr(message, attr, None)
+            if not obj:
+                continue
+            # Find the downloaded file for this attachment type
+            tg_prefix = f"a2t_{bot_name}_" if bot_name else "a2t_"
+            download_dir = files.get_abs_path(DOWNLOAD_FOLDER)
+            transcribed = False
+            for att_path in (attachments or []):
+                # att_path is dockerized; resolve to absolute path for reading
+                abs_att = files.get_abs_path(att_path) if not os.path.isabs(att_path) else att_path
+                if os.path.isfile(abs_att):
+                    transcript = await _transcribe_audio_file(att_path)
+                    if transcript:
+                        marker = f"[{label} -- see attachment]"
+                        text = text.replace(marker, f"[{label} transcribed]: {transcript}")
+                        transcribed = True
+                        PrintStyle.info(f"A2T: {label} transcribed via Whisper ({len(transcript)} chars)")
+                        break
+            if not transcribed and f"[{label} -- see attachment]" in text:
+                PrintStyle.info(f"A2T: {label} could not be transcribed (Whisper unavailable or failed)")
+
     agent = context.agent0
     user_msg = agent.read_prompt(
         "fw.a2t.user_message.md",
@@ -910,6 +935,31 @@ def _extract_message_content(message: TgMessage) -> str:
         parts.append(f"[Venue: {v.title} at {v.location.latitude}, {v.location.longitude}]")
 
     return "\n".join(parts) if parts else "[No text content]"
+
+
+async def _transcribe_audio_file(file_path: str) -> str | None:
+    """Transcribe audio file using Whisper STT runtime (model in memory).
+
+    Returns transcribed text or None if Whisper is unavailable.
+    """
+    try:
+        from plugins._whisper_stt.helpers import runtime as whisper_runtime
+        if not whisper_runtime.is_globally_enabled():
+            return None
+
+        abs_path = files.get_abs_path(file_path)
+        if not os.path.isfile(abs_path):
+            return None
+
+        with open(abs_path, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        result = await whisper_runtime.transcribe(audio_b64)
+        text = str(result.get("text") or "").strip()
+        return text if text else None
+    except Exception as e:
+        PrintStyle.error(f"A2T: Whisper transcription failed: {format_error(e)}")
+        return None
 
 
 async def _download_attachments(bot, message: TgMessage, bot_name: str = "") -> list[str]:
