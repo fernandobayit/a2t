@@ -25,6 +25,8 @@ from aiogram.enums import ParseMode
 from aiogram.types import (
     Message as TgMessage,
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
 )
 
 from agent import AgentContext, UserMessage
@@ -555,6 +557,44 @@ async def handle_context(message: TgMessage, bot_name: str, bot_cfg: dict):
 #  Callback query handler
 # ---------------------------------------------------------------------------
 
+async def _mark_selected_choice(query: CallbackQuery):
+    """Transform the pressed button into the selected choice on the message.
+
+    Marks the clicked inline button with a check mark so the message visibly
+    reflects which option was picked. Silently skips when the message can no
+    longer be edited (e.g. older than 48 hours).
+    """
+    try:
+        markup = query.message.reply_markup
+        rows = getattr(markup, "inline_keyboard", None)
+        if not rows:
+            return
+
+        cb_data = query.data or ""
+        changed = False
+        new_rows = []
+        for row in rows:
+            new_row = []
+            for btn in row:
+                if btn.callback_data == cb_data:
+                    label = btn.text or ""
+                    if not label.startswith("✅"):
+                        btn = btn.model_copy(update={"text": f"✅ {label}"})
+                        changed = True
+                new_row.append(btn)
+            new_rows.append(new_row)
+
+        if not changed:
+            return
+
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows)
+        )
+        PrintStyle.info(f"A2T: marked selected option on message ({cb_data[:64]})")
+    except Exception as e:
+        PrintStyle.error(f"A2T: could not mark selected option: {format_error(e)}")
+
+
 async def handle_callback_query(query: CallbackQuery, bot_name: str, bot_cfg: dict):
     """Handle inline keyboard button presses."""
     user = query.from_user
@@ -566,6 +606,9 @@ async def handle_callback_query(query: CallbackQuery, bot_name: str, bot_cfg: di
         return
 
     await query.answer()
+
+    # Transform the pressed button into the selected choice on the message
+    await _mark_selected_choice(query)
 
     cb_data = query.data or ""
     # Treat unknown callback data as a user message (keyboard buttons from agent)
