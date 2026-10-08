@@ -1059,9 +1059,11 @@ async def send_telegram_reply(
             if response_text:
                 html_text = tc.md_to_telegram_html(response_text)
                 if keyboard:
-                    await tc.send_text_with_keyboard(reply_bot, chat_id, message_thread_id=thread_id, text=html_text, buttons=keyboard, reply_to_message_id=reply_to)
+                    sent = await tc.send_text_with_keyboard(reply_bot, chat_id, message_thread_id=thread_id, text=html_text, buttons=keyboard, reply_to_message_id=reply_to)
                 else:
-                    await tc.send_text(reply_bot, chat_id, message_thread_id=thread_id, text=html_text, reply_to_message_id=reply_to)
+                    sent = await tc.send_text(reply_bot, chat_id, message_thread_id=thread_id, text=html_text, reply_to_message_id=reply_to)
+                if sent is None:
+                    return "A2T reply failed: no message_id returned"
 
         return None
 

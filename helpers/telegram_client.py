@@ -51,6 +51,52 @@ async def _send_with_thread_fallback(bot_method, *args, message_thread_id: int |
 #  Text messages
 # ---------------------------------------------------------------------------
 
+async def _send_chunk_with_fallback(
+    bot: Bot,
+    chat_id: int,
+    chunk: str,
+    reply_to_message_id: int | None,
+    message_thread_id: int | None,
+    pm_kwargs: dict,
+    reply_markup=None,
+) -> int | None:
+    """Send one chunk; if formatting is rejected, retry as plain text.
+
+    Guarantees delivery: on TelegramBadRequest (e.g. invalid HTML entities
+    produced by the Markdown->HTML converter) the chunk is sanitized with
+    strip_html_tags() and resent with parse_mode=None, preserving any
+    reply_markup. Never retries with an empty payload.
+    """
+    try:
+        msg = await _send_with_thread_fallback(
+            bot.send_message,
+            chat_id=chat_id,
+            text=chunk,
+            reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
+            reply_markup=reply_markup,
+            **pm_kwargs,
+        )
+        return msg.message_id
+    except TelegramBadRequest as e:
+        PrintStyle.warning(
+            f"A2T: formatted send rejected, retrying as plain text: {format_error(e)}"
+        )
+        plain = strip_html_tags(chunk)
+        if not plain.strip():
+            plain = "(mensagem com formatação não suportada)"
+        msg = await _send_with_thread_fallback(
+            bot.send_message,
+            chat_id=chat_id,
+            text=plain,
+            reply_to_message_id=reply_to_message_id,
+            message_thread_id=message_thread_id,
+            reply_markup=reply_markup,
+            parse_mode=None,
+        )
+        return msg.message_id
+
+
 async def send_text(
     bot: Bot,
     chat_id: int,
@@ -65,34 +111,23 @@ async def send_text(
       - _UNSET (default): omitted from send_message -> Bot's DefaultBotProperties applies.
       - None: explicitly no formatting.
       - "HTML"/"Markdown"/etc.: that specific mode.
+
+    Each chunk falls back automatically to plain text when formatting is
+    rejected by Telegram, so the message is always delivered.
     """
     try:
         chunks = split_message(text, MAX_MESSAGE_LENGTH)
         last_msg_id = None
         pm_kwargs: dict = {} if parse_mode is _UNSET else {"parse_mode": parse_mode}
         for chunk in chunks:
-            try:
-                msg = await _send_with_thread_fallback(
-                    bot.send_message,
-                    chat_id=chat_id,
-                    text=chunk,
-                    reply_to_message_id=reply_to_message_id,
-                    message_thread_id=message_thread_id,
-                    **pm_kwargs,
-                )
-                last_msg_id = msg.message_id
-            except TelegramBadRequest:
-                # Retry as plain text, stripping HTML tags
-                plain = strip_html_tags(chunk)
-                msg = await _send_with_thread_fallback(
-                    bot.send_message,
-                    chat_id=chat_id,
-                    text=plain,
-                    reply_to_message_id=reply_to_message_id,
-                    parse_mode=None,
-                    message_thread_id=message_thread_id,
-                )
-                last_msg_id = msg.message_id
+            last_msg_id = await _send_chunk_with_fallback(
+                bot,
+                chat_id,
+                chunk,
+                reply_to_message_id,
+                message_thread_id,
+                pm_kwargs,
+            )
         return last_msg_id
     except Exception as e:
         PrintStyle.error(f"A2T send_text failed: {format_error(e)}")
@@ -108,20 +143,27 @@ async def send_text_with_keyboard(
     reply_to_message_id: int | None = None,
     parse_mode: object = _UNSET,
 ) -> int | None:
-    """Send text with inline keyboard buttons."""
+    """Send text with inline keyboard buttons.
+
+    Falls back automatically to plain text (keyboard preserved) when
+    formatting is rejected by Telegram, so the message is always delivered.
+    """
     try:
         keyboard = build_inline_keyboard(buttons)
         pm_kwargs: dict = {} if parse_mode is _UNSET else {"parse_mode": parse_mode}
-        msg = await _send_with_thread_fallback(
-            bot.send_message,
-            chat_id=chat_id,
-            text=text,
-            reply_markup=keyboard,
-            reply_to_message_id=reply_to_message_id,
-            message_thread_id=message_thread_id,
-            **pm_kwargs,
-        )
-        return msg.message_id
+        chunks = split_message(text, MAX_MESSAGE_LENGTH)
+        last_msg_id = None
+        for chunk in chunks:
+            last_msg_id = await _send_chunk_with_fallback(
+                bot,
+                chat_id,
+                chunk,
+                reply_to_message_id,
+                message_thread_id,
+                pm_kwargs,
+                reply_markup=keyboard,
+            )
+        return last_msg_id
     except Exception as e:
         PrintStyle.error(f"A2T send_text_with_keyboard failed: {format_error(e)}")
         return None
