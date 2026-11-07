@@ -1,7 +1,7 @@
 name: a2t
 title: "A2T - Telegram Connector"
 description: Telegram bridge plugin for Agent Zero with per-user and per-topic project routing.
-version: 2.2.0
+version: 2.2.1
 settings_sections:
   - external
 per_project_config: false
