@@ -10,7 +10,7 @@ A2T is a Telegram bridge plugin for [Agent Zero](https://github.com/agent0ai/a0)
 - **Rich message support** — Text, photos, documents, audio, voice, video, animations, polls, and more
 - **Markdown → Telegram HTML** — Convert agent responses to Telegram-compatible HTML with tables, code blocks, and inline formatting
 - **Inline keyboards** — Send interactive buttons with responses
-- **Agent control commands** — `/start`, `/help`, `/clear`, `/status`, `/id`, `/stop`, `/resume`, `/nudge`, `/context`
+- **Agent control commands** — `/start`, `/help`, `/new`, `/status`, `/id`, `/stop`, `/resume`, `/nudge`, `/context`
 - **Typing indicators** — Visual feedback while the agent processes messages
 - **Group chat support** — Respond to @mentions, replies, or all messages (configurable)
 - **Welcome messages** — Greet new group members automatically
@@ -73,7 +73,7 @@ Configure bots via the WebUI settings panel or edit `config.json` directly:
 |---|---|
 | `/start` | Start the bot |
 | `/help` | Show available commands |
-| `/clear` | Start a new conversation |
+| `/new` | Start a new conversation |
 | `/status` | Show connection status |
 | `/id` | Show your User/Chat ID |
 | `/stop` | Pause the agent |

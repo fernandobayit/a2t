@@ -3,7 +3,7 @@ A2T Handler - Central message routing, context lifecycle, user auth,
 attachment download, reply sending, typing indicator, and all A2T commands.
 
 Preserves the full A2T command set:
-  /start, /help, /clear, /status, /id, /stop, /resume, /nudge,
+  /start, /help, /new, /status, /id, /stop, /resume, /nudge,
   /context
 
 Uses the A0 plugin system's AgentContext for per-user sessions and
@@ -250,7 +250,7 @@ HELP_TEXT = (
     "<b>Commands:</b>\n"
     "/start -- Start the bot\n"
     "/help -- Show this message\n"
-    "/clear -- Start a new conversation\n"
+    "/new -- Start a new conversation\n"
     "/status -- Show connection status\n"
     "/id -- Show your User/Chat ID\n"
     "/stop -- Pause the agent (stop current work)\n"
@@ -306,8 +306,8 @@ async def handle_help(message: TgMessage, bot_name: str, bot_cfg: dict):
     )
 
 
-async def handle_clear(message: TgMessage, bot_name: str, bot_cfg: dict):
-    """Handle /clear command -- reset user's chat context."""
+async def handle_new(message: TgMessage, bot_name: str, bot_cfg: dict):
+    """Handle /new command -- reset user's chat context."""
     user = message.from_user
     if not user:
         return
@@ -339,7 +339,7 @@ async def handle_clear(message: TgMessage, bot_name: str, bot_cfg: dict):
             type=NotificationType.INFO,
             priority=NotificationPriority.NORMAL,
             title="A2T: chat cleared",
-            message=f"{username_str} cleared their chat via /clear",
+            message=f"{username_str} cleared their chat via /new",
             display_time=5,
             group="a2t",
         )
@@ -426,7 +426,7 @@ async def handle_stop(message: TgMessage, bot_name: str, bot_cfg: dict):
                 instance.bot.token, message.chat.id,
                 "<b>Agent paused.</b>\n\n"
                 "The agent has been stopped mid-work.\n"
-                "Use /resume to continue or /clear to start fresh.",
+                "Use /resume to continue or /new to start fresh.",
                 message_thread_id=_api_thread_id(message),
             )
         PrintStyle.info(f"A2T ({bot_name}): agent paused for user {user.id}")

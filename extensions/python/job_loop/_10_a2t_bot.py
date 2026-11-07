@@ -45,7 +45,7 @@ class YatcaBotManager(Extension):
         from usr.plugins.a2t.helpers.handler import (
             handle_start,
             handle_help,
-            handle_clear,
+            handle_new,
             handle_status,
             handle_id,
             handle_stop,
@@ -86,7 +86,7 @@ class YatcaBotManager(Extension):
                 # Create handler closures that capture bot_name and config
                 _on_start = partial(_make_handler(handle_start), bot_name=name, bot_cfg=bot_cfg)
                 _on_help = partial(_make_handler(handle_help), bot_name=name, bot_cfg=bot_cfg)
-                _on_clear = partial(_make_handler(handle_clear), bot_name=name, bot_cfg=bot_cfg)
+                _on_new = partial(_make_handler(handle_new), bot_name=name, bot_cfg=bot_cfg)
                 _on_status = partial(_make_handler(handle_status), bot_name=name, bot_cfg=bot_cfg)
                 _on_id = partial(_make_handler(handle_id), bot_name=name, bot_cfg=bot_cfg)
                 _on_stop = partial(_make_handler(handle_stop), bot_name=name, bot_cfg=bot_cfg)
@@ -103,7 +103,7 @@ class YatcaBotManager(Extension):
                     on_message=_on_message,
                     on_command_start=_on_start,
                     on_command_help=_on_help,
-                    on_command_clear=_on_clear,
+                    on_command_new=_on_new,
                     on_command_status=_on_status,
                     on_command_id=_on_id,
                     on_command_stop=_on_stop,

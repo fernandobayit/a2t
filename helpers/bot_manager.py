@@ -57,7 +57,7 @@ def get_all_bots() -> dict[str, BotInstance]:
 A2T_BOT_COMMANDS = [
     BotCommand(command="start", description="Start the bot"),
     BotCommand(command="help", description="Show available commands"),
-    BotCommand(command="clear", description="Start a new conversation"),
+    BotCommand(command="new", description="Start a new conversation"),
     BotCommand(command="status", description="Show connection status"),
     BotCommand(command="id", description="Show your User/Chat ID"),
     BotCommand(command="stop", description="Pause the agent"),
@@ -77,7 +77,7 @@ def create_bot(
     on_message: Callable[..., Awaitable],
     on_command_start: Callable[..., Awaitable],
     on_command_help: Callable[..., Awaitable],
-    on_command_clear: Callable[..., Awaitable],
+    on_command_new: Callable[..., Awaitable],
     on_command_status: Callable[..., Awaitable],
     on_command_id: Callable[..., Awaitable],
     on_command_stop: Callable[..., Awaitable],
@@ -95,7 +95,7 @@ def create_bot(
     # Register A2T command handlers
     router.message.register(on_command_start, CommandStart())
     router.message.register(on_command_help, Command("help"))
-    router.message.register(on_command_clear, Command("clear"))
+    router.message.register(on_command_new, Command("new"))
     router.message.register(on_command_status, Command("status"))
     router.message.register(on_command_id, Command("id"))
     router.message.register(on_command_stop, Command("stop"))
